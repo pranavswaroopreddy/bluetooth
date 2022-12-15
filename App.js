@@ -3,11 +3,9 @@ import {
   Text,
   View,
   SafeAreaView,
-  TouchableNativeFeedback,
   TouchableHighlight,
   Pressable,
   ScrollView,
-  // Button,
   TextInput,
   Platform,
   ToastAndroid,
@@ -52,6 +50,7 @@ const App = () => {
   const [active, setActive] = React.useState();
   const [isAccepting, setIsAccepting] = React.useState(false);
   const [device, setDevice] = React.useState();
+  const [recievedData, setRecievedData] = React.useState([]);
 
   React.useEffect(() => {
     // requestPermissionFineLocation();
@@ -145,6 +144,9 @@ const App = () => {
     try {
       const disconnected = await device.disconnect();
       setConnected(false);
+      if (disconnected) {
+        ToastAndroid.show(` Disconnected :${device.name}`, ToastAndroid.SHORT);
+      }
     } catch (error) {
       console.log(error);
     }
@@ -162,12 +164,32 @@ const App = () => {
     }
   };
 
+  const time = () => {
+    let date = new Date();
+    let hours = date.getHours();
+    let minutes = date.getMinutes();
+    let seconds = date.getSeconds();
+    let ampm = hours >= 12 ? 'pm' : 'am';
+    hours = hours % 12;
+    hours = hours ? hours : 12; // the hour '0' should be '12'
+    minutes = minutes < 10 ? '0' + minutes : minutes;
+    let strTime = hours + ':' + minutes + ' ' + ampm;
+    return strTime;
+  };
+
   const readMessage = async device => {
     console.log('readMessage');
     try {
       const read = await device.read();
       if (read) {
         console.log('read', read);
+        let msg = {
+          timestamp: time(),
+          data: read,
+        };
+        setRecievedData(prev => {
+          return [...prev, msg];
+        });
         ToastAndroid.show(` Read :${read}`, ToastAndroid.SHORT);
       }
     } catch (error) {
@@ -180,6 +202,10 @@ const App = () => {
     setIsAccepting(true);
     try {
       const device = await RNBluetoothClassic.accept({});
+      if (device) {
+        ToastAndroid.show(` Connected :${device.name}`, ToastAndroid.SHORT);
+        cancelAccept();
+      }
       this.setState({device});
     } catch (error) {
       console.log(error);
@@ -222,7 +248,7 @@ const App = () => {
             <>
               {devices.map((device, index) => (
                 <Pressable
-                  style={styles.button}
+                  style={styles.device}
                   onPress={() => pair(device)}
                   key={index}>
                   <Text
@@ -307,13 +333,26 @@ const App = () => {
             onChangeText={text => setMessage(text)}
             value={message}
           />
+
           {/* <Button title="Send" onPress={() => sendMessage(message)} /> */}
+        </View>
+        <Text style={[styles.title, {marginVertical: 25}]}>Revieved Data</Text>
+        <View
+          style={{
+            margin: 10,
+            padding: 10,
+          }}>
+          {recievedData &&
+            recievedData.map((msg, index) => (
+              <Text
+                style={{fontSize: 16, color: '#000'}}
+                key={index}>{`${msg.timestamp}:  ${msg.data}`}</Text>
+            ))}
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 };
-
 export default App;
 
 const styles = StyleSheet.create({
@@ -350,5 +389,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     margin: 5,
     color: '#000',
+  },
+  device: {
+    backgroundColor: '#6750A4',
+    padding: 5,
+    margin: 10,
   },
 });
