@@ -41,7 +41,7 @@ const Button = ({title, onPress}) => {
 };
 
 const App = () => {
-  const [devices, setDevices] = React.useState([]);
+  const [unPaired, setUnPaired] = React.useState([]);
   const [connected, setConnected] = React.useState();
   const [isDiscovering, setIsDiscovering] = React.useState(false);
   const [paired, setPaired] = React.useState([]);
@@ -51,13 +51,9 @@ const App = () => {
   const [isAccepting, setIsAccepting] = React.useState(false);
   const [device, setDevice] = React.useState();
   const [recievedData, setRecievedData] = React.useState([]);
+  const [socketDevices, setSocketDevices] = React.useState([]);
 
   React.useEffect(() => {
-    // requestPermissionFineLocation();
-    // requestPermissionBluetooth();
-    // requestPermissionBluetoothAdmin();
-    // requestPermissionBluetoothConnect();
-
     const apiLevel = DeviceInfo.getApiLevel();
     if (apiLevel < 31) {
       requestPermissionFineLocation();
@@ -76,24 +72,28 @@ const App = () => {
       console.log('Permission not granted');
       return;
     }
-    const unpaired = await RNBluetoothClassic.startDiscovery();
+    const unpairedDevices = await RNBluetoothClassic.startDiscovery();
 
-    if (unpaired) {
-      console.log('unpaired', unpaired);
-      setDevices(unpaired);
+    if (unpairedDevices) {
+      console.log('unpaired', unpairedDevices);
+      setUnPaired(unpairedDevices);
       setIsDiscovering(false);
     }
   };
 
   const cancelDiscovery = async () => {
-    const cancelled = cancelDiscovery();
+    const cancelled = await RNBluetoothClassic.cancelDiscovery();
+    console.log('cancelled', cancelled);
+    if (cancelled) {
+      console.log('cancelled', cancelled);
+      setIsDiscovering(false);
+    }
   };
 
   const pair = async device => {
     const paired = await RNBluetoothClassic.pairDevice(device.id);
     if (paired) {
       console.log('paired', paired);
-      // setPaired(paired);
     }
   };
   const getPairedDevices = async () => {
@@ -140,12 +140,13 @@ const App = () => {
     }
   };
 
-  const disconnect = async device => {
+  const disconnect = async (device, index) => {
     try {
       const disconnected = await device.disconnect();
       setConnected(false);
       if (disconnected) {
         ToastAndroid.show(` Disconnected :${device.name}`, ToastAndroid.SHORT);
+        setSocketDevices(socketDevices.filter((item, i) => i !== index));
       }
     } catch (error) {
       console.log(error);
@@ -161,6 +162,7 @@ const App = () => {
       }
     } catch (error) {
       console.log(error);
+      ToastAndroid.show(`${error}`, ToastAndroid.SHORT);
     }
   };
 
@@ -184,18 +186,58 @@ const App = () => {
       if (read) {
         console.log('read', read);
         let msg = {
+          name: device.name,
           timestamp: time(),
           data: read,
         };
         setRecievedData(prev => {
           return [...prev, msg];
         });
-        ToastAndroid.show(` Read :${read}`, ToastAndroid.SHORT);
+        ToastAndroid.show(` ${device.name} :${read}`, ToastAndroid.SHORT);
       }
+    } catch (error) {
+      console.log(error);
+      ToastAndroid.show(`${error}`, ToastAndroid.SHORT);
+    }
+  };
+
+  const initializeRead = async () => {
+    try {
+      console.log('initializeRead', socketDevices[0].id);
+      const read = await socketDevices[0].onDataReceived(data => {
+        onReceievedData(data);
+      });
+      // if (read) {
+      //   console.log(JSON.stringify(read));
+      // }
     } catch (error) {
       console.log(error);
     }
   };
+
+  const onReceievedData = data => {
+    let msg = {
+      name: data.device.name ? data.device.name : data.device.id,
+      timestamp: time(),
+      data: data.data,
+    };
+    setRecievedData(prev => {
+      return [...prev, msg];
+    });
+    // ToastAndroid.show(` ${socketDevices[0].name} :${data}`, ToastAndroid.SHORT);
+  };
+
+  React.useEffect(() => {
+    console.log('read useeffect');
+    if (socketDevices.length > 0) {
+      initializeRead();
+
+      // if (read) {
+      //   console.log('read', read);
+      //   return read();
+      // }
+    }
+  }, [socketDevices]);
 
   const accept = async () => {
     console.log('accepting');
@@ -206,7 +248,9 @@ const App = () => {
         ToastAndroid.show(` Connected :${device.name}`, ToastAndroid.SHORT);
         cancelAccept();
       }
-      this.setState({device});
+      setSocketDevices(prev => {
+        return [...prev, device];
+      });
     } catch (error) {
       console.log(error);
     } finally {
@@ -214,8 +258,6 @@ const App = () => {
       console.log('accepting done');
     }
   };
-
-  const onDataRecieved = data => {};
 
   const cancelAccept = async () => {
     // if (!isAccepting) {
@@ -246,7 +288,7 @@ const App = () => {
         ) : (
           <View style={styles.list}>
             <>
-              {devices.map((device, index) => (
+              {unPaired.map((device, index) => (
                 <Pressable
                   style={styles.device}
                   onPress={() => pair(device)}
@@ -266,54 +308,58 @@ const App = () => {
           </View>
         )}
 
+        <View style={{flexDirection: 'row', justifyContent: 'space-evenly'}}>
+          <Button title="Accept" onPress={accept} />
+          <Button title="Cancel Accept" onPress={cancelAccept} />
+        </View>
+
         <Text style={styles.title}>Connected Devices</Text>
         <View style={styles.list}>
           <>
-            {paired.map((device, index) => (
-              <View View key={index}>
-                <Pressable
-                  style={{marginVertical: 5, backgroundColor: '#f4f6f8'}}
-                  key={index}
-                  onPress={() => connect(device)}>
-                  <Text style={styles.listItem}>{device.name}</Text>
-                  <Text style={styles.listItem}>{device.id}</Text>
-                </Pressable>
-                {isConnected(device) && (
+            {socketDevices.map((device, index) => (
+              <View
+                style={{marginVertical: 5, backgroundColor: '#f4f6f8'}}
+                key={index}>
+                <Pressable key={index} onPress={() => connect(device)}>
                   <View
                     style={{
                       flexDirection: 'row',
                       justifyContent: 'space-evenly',
                     }}>
-                    <Button
-                      title="Disconnect"
-                      onPress={() => disconnect(device)}
-                    />
-                    <Button
-                      title="Send Message"
-                      onPress={() => sendMessage(device)}
-                    />
-                    <Button
-                      title="Read Message"
-                      onPress={() => readMessage(device)}
-                    />
+                    <Text style={styles.listItem}>{device.name}</Text>
+                    <Text style={styles.listItem}>{device.id}</Text>
                   </View>
-                )}
+                </Pressable>
+
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-evenly',
+                  }}>
+                  <Button
+                    title="Disconnect"
+                    onPress={() => disconnect(device, index)}
+                  />
+                  <Button
+                    title="Send Message"
+                    onPress={() => sendMessage(device)}
+                  />
+                  <Button
+                    title="Read Message"
+                    onPress={() => readMessage(device)}
+                  />
+                </View>
               </View>
             ))}
           </>
         </View>
-        <View style={{alignItems: 'center'}}>
+        {/* <View style={{alignItems: 'center'}}>
           <Button title="Get Active Devices" onPress={connectedDevices} />
 
           <Text style={styles.title}>
             Active{`  ${active && active[0].name}`}
           </Text>
-        </View>
-
-        <View style={{flexDirection: 'row', justifyContent: 'space-evenly'}}>
-          <Button title="Accept" onPress={accept} />
-          <Button title="Cancel Accept" onPress={cancelAccept} />
-        </View>
+        </View> */}
 
         <Text style={[styles.title, {marginVertical: 25}]}>Send Data</Text>
         <View
@@ -344,9 +390,20 @@ const App = () => {
           }}>
           {recievedData &&
             recievedData.map((msg, index) => (
-              <Text
-                style={{fontSize: 16, color: '#000'}}
-                key={index}>{`${msg.timestamp}:  ${msg.data}`}</Text>
+              <View
+                key={index}
+                style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    color: '#000',
+                  }}>{`${msg.name}:  ${msg.data}`}</Text>
+                <Text
+                  style={{
+                    fontSize: 16,
+                    color: '#000',
+                  }}>{` ${msg.timestamp}`}</Text>
+              </View>
             ))}
         </View>
       </ScrollView>
